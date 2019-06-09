@@ -87,6 +87,8 @@ typedef int socket_t;
 #define CPPHTTPLIB_KEEPALIVE_TIMEOUT_SECOND 5
 #define CPPHTTPLIB_KEEPALIVE_TIMEOUT_USECOND 0
 #define CPPHTTPLIB_KEEPALIVE_MAX_COUNT 5
+#define CPPHTTPLIB_READ_TIMEOUT_SECOND 5
+#define CPPHTTPLIB_READ_TIMEOUT_USECOND 0
 #define CPPHTTPLIB_REQUEST_URI_MAX_LENGTH 8192
 #define CPPHTTPLIB_PAYLOAD_MAX_LENGTH std::numeric_limits<size_t>::max()
 
@@ -928,7 +930,10 @@ private:
                     }
                 }
 
-                if (len > payload_max_length) {
+                if ((len > payload_max_length) ||
+                    // For 32-bit platform
+                    (sizeof(size_t) < sizeof(uint64_t) &&
+                     len > std::numeric_limits<size_t>::max())) {
                     exceed_payload_max_length = true;
                     skip_content_with_length(strm, len);
                     return false;
@@ -1429,7 +1434,11 @@ inline void decompress(std::string &content) {
     inline SocketStream::~SocketStream() {}
 
     inline int SocketStream::read(char *ptr, size_t size) {
-        return recv(sock_, ptr, static_cast<int>(size), 0);
+        if (detail::select_read(sock_, CPPHTTPLIB_READ_TIMEOUT_SECOND,
+                                CPPHTTPLIB_READ_TIMEOUT_USECOND) > 0) {
+            return recv(sock_, ptr, static_cast<int>(size), 0);
+        }
+        return -1;
     }
 
     inline int SocketStream::write(const char *ptr, size_t size) {
@@ -1675,7 +1684,10 @@ inline void decompress(std::string &content) {
                     if (::bind(sock, ai.ai_addr, static_cast<int>(ai.ai_addrlen))) {
                         return false;
                     }
-                    return ::listen(sock, 5) == 0;
+                    if (::listen(sock, 5)) { // Listen through 5 channels
+                        return false;
+                    }
+                    return true;
                 },
                 socket_flags);
     }
@@ -2304,7 +2316,12 @@ inline SSLSocketStream::SSLSocketStream(socket_t sock, SSL *ssl)
 inline SSLSocketStream::~SSLSocketStream() {}
 
 inline int SSLSocketStream::read(char *ptr, size_t size) {
-  return SSL_read(ssl_, ptr, size);
+  if (SSL_pending(ssl_) > 0 ||
+      detail::select_read(sock_, CPPHTTPLIB_READ_TIMEOUT_SECOND,
+                          CPPHTTPLIB_READ_TIMEOUT_USECOND) > 0) {
+    return SSL_read(ssl_, ptr, size);
+  }
+  return -1;
 }
 
 inline int SSLSocketStream::write(const char *ptr, size_t size) {
