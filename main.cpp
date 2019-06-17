@@ -1,6 +1,7 @@
 #include <chrono>
-#include <cstdio>
 #include <string>
+#include <sstream>
+#include <iostream>
 
 #include "include/httplib.h"
 #include "include/sqlite_modern_cpp.h"
@@ -14,54 +15,43 @@ using namespace httplib;
 
 std::string dump_headers(const Headers &headers)
 {
-  std::string s;
-  char buf[BUFSIZ];
+  std::stringstream s;
 
-  for (auto it = headers.begin(); it != headers.end(); ++it)
+  for (const auto &x : headers)
     {
-      const auto &x = *it;
-      snprintf(buf, sizeof(buf), "%s: %s\n", x.first.c_str(), x.second.c_str());
-      s += buf;
+      s << x.first << ": " << x.second << '\n';
     }
 
-  return s;
+  return s.str();
 }
 
 std::string log(const Request &req, const Response &res)
 {
-  std::string s;
-  char buf[BUFSIZ];
-  s += "================================\n";
-  snprintf(buf, sizeof(buf), "%s %s %s", req.method.c_str(),
-           req.version.c_str(), req.path.c_str());
-  s += buf;
+  std::stringstream s;
+  s << "================================\n";
+  s << req.method << ' ' << req.version << ' ' << req.path;
   std::string query;
 
   for (auto it = req.params.begin(); it != req.params.end(); ++it)
     {
       const auto &x = *it;
-      snprintf(buf, sizeof(buf), "%c%s=%s",
-               (it == req.params.begin()) ? '?' : '&', x.first.c_str(),
-               x.second.c_str());
-      query += buf;
+      s << (it == req.params.begin() ? '?' : '&') << x.first << '=' << x.second;
     }
 
-  snprintf(buf, sizeof(buf), "%s\n", query.c_str());
-  s += buf;
-  s += dump_headers(req.headers);
-  s += "--------------------------------\n";
-  snprintf(buf, sizeof(buf), "%d %s\n", res.status, res.version.c_str());
-  s += buf;
-  s += dump_headers(res.headers);
-  s += "\n";
+  s << '\n';
+  s << dump_headers(req.headers);
+  s << "--------------------------------\n";
+  s << res.status << ' ' << res.version;
+  s << dump_headers(res.headers);
+  s << "\n";
 
   if (!res.body.empty())
     {
-      s += res.body;
+      s << res.body;
     }
 
-  s += "\n";
-  return s;
+  s << "\n";
+  return s.str();
 }
 
 void fillDB(sqlite::database &db)
@@ -104,10 +94,11 @@ void fillDB(sqlite::database &db)
      ");";
   FILE *fp = fopen("loot.json", "r"); // non-Windows use "r"
 
-  if (fp)
+  if (fp != nullptr)
     {
       char readBuffer[65536];
-      rapidjson::FileReadStream is(fp, readBuffer, sizeof(readBuffer));
+      rapidjson::FileReadStream is(fp, static_cast<char *>(readBuffer),
+                                   sizeof(readBuffer));
       rapidjson::Document d;
       d.ParseStream(is);
       fclose(fp);
@@ -160,7 +151,7 @@ void fillDB(sqlite::database &db)
         }
       catch (std::exception &e)
         {
-          printf("%s\n", e.what());
+          std::cout << e.what() << std::endl;
         }
     }
   else
@@ -263,7 +254,7 @@ std::string getLoot(sqlite::database &db)
   return buffer.GetString();
 }
 
-int main(void)
+int main()
 {
   sqlite::database db("loot.db");
   fillDB(db);
@@ -271,7 +262,7 @@ int main(void)
 
   if (!svr.is_valid())
     {
-      printf("server has an error...\n");
+      std::cout << "server has an error..." << std::endl;
       return -1;
     }
 
@@ -279,45 +270,36 @@ int main(void)
   {
     res.set_redirect("/hi");
   });
-
   svr.Get("/hi", [](const Request & /*req*/, Response & res)
   {
     res.set_content("Hello World!\n", "text/plain");
   });
-
   svr.Get("/lol-loot/v1/player-loot", [&](const Request & /*req*/, Response & res)
   {
     res.set_content(getLoot(db), "application/json");
   });
-
   svr.Get("/slow", [](const Request & /*req*/, Response & res)
   {
     std::this_thread::sleep_for(std::chrono::seconds(2));
     res.set_content("Slow...\n", "text/plain");
   });
-
   svr.Get("/dump", [](const Request & req, Response & res)
   {
     res.set_content(dump_headers(req.headers), "text/plain");
   });
-
   svr.Get("/stop",
   [&](const Request & /*req*/, Response & /*res*/) { svr.stop(); });
-
   svr.set_error_handler([](const Request & /*req*/, Response & res)
   {
-    const char *fmt = "<p>Error Status: <span style='color:red;'>%d</span></p>";
-    char buf[BUFSIZ];
-    snprintf(buf, sizeof(buf), fmt, res.status);
-    res.set_content(buf, "text/html");
+    std::stringstream s;
+    s << "<p>Error Status: <span style='color:red;'>" << res.status <<
+      "</span></p>";
+    res.set_content(s.str(), "text/html");
   });
-
   svr.set_logger([](const Request & req, const Response & res)
   {
-    printf("%s", log(req, res).c_str());
+    std::cout << log(req, res) << std::endl;
   });
-
   svr.listen("localhost", 8080);
-
   return 0;
 }
