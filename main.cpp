@@ -148,6 +148,7 @@ void fillDB(sqlite::database &db)
               ins << v["value"].GetInt();
               ins++;
             }
+          ins.used(true);
         }
       catch (std::exception &e)
         {

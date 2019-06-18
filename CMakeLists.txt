@@ -13,7 +13,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 ENDIF(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-    target_link_libraries(${CMAKE_PROJECT_NAME} pthread)
+    target_link_libraries(${CMAKE_PROJECT_NAME} pthread dl)
 ENDIF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
 target_link_libraries(${CMAKE_PROJECT_NAME} sqlite)
